@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1c30" />
+  <meta name="description" content="KNUCKLE HUCK — an arcade snowboarding game about popping off the knuckle and doing something spectacular. By HaveAnApp." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Knuckle Huck" />
+  <meta property="og:title" content="KNUCKLE HUCK" />
+  <meta property="og:description" content="Pop the knuckle. Spin, flip, grab, stomp. One more run." />
+  <meta property="og:image" content="/og.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <title>KNUCKLE HUCK</title>
+</head>
+<body>
+  <div id="app">
+    <canvas id="gl"></canvas>
+    <div id="fx"></div>
+    <div id="hud"></div>
+    <div id="touch"></div>
+    <div id="ui"></div>
+    <div id="boot">
+      <div class="boot-logo"><span>KNUCKLE</span><span>HUCK</span></div>
+      <div class="boot-bar"><i></i></div>
+      <div class="boot-msg">Grooming the knuckle…</div>
+    </div>
+  </div>
+  <noscript>KNUCKLE HUCK needs JavaScript to shred.</noscript>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

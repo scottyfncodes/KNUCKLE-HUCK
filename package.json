@@ -1,0 +1,23 @@
+{
+  "name": "knuckle-huck",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "sim": "node --experimental-strip-types scripts/sim.ts"
+  },
+  "dependencies": {
+    "three": "0.186.1",
+    "@fontsource/anton": "5.2.7",
+    "@fontsource/barlow-condensed": "5.2.7",
+    "@fontsource/permanent-marker": "5.2.7"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}
