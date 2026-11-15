@@ -25,7 +25,7 @@ export interface RunScore {
   pop: PopResult | null;
   height: number;
   categories: {
-    amplitude: number; difficulty: number; style: number; creativity: number; progression: number;
+    amplitude: number; difficulty: number; style: number; creativity: number; progression: number; setup: number;
   };
   lines: ScoreLine[];
   execution: number;      // multiplier from pop + landing
@@ -125,6 +125,13 @@ export function scoreRun(
   if (bonus?.grab && distinctGrabs.has(bonus.grab as never)) style *= bonus.mult ?? 2;
   style = Math.round(style);
 
+  // Setup: the hop on the deck before the knuckle
+  let setup = 0;
+  if (trick.hop) {
+    setup = trick.hop.timing === 'perfect' ? 340 : trick.hop.timing === 'good' ? 210 : 90;
+    if (trick.hop.spin) setup += 260;
+  }
+
   // Creativity
   let creativity = 0;
   const seenThisSession = mem.signatures.includes(trick.signature);
@@ -159,6 +166,7 @@ export function scoreRun(
   if (trick.late) comboElements.push('late');
   if (trick.pressPop !== 'none') comboElements.push(trick.pressPop === 'nose' ? 'nollie' : 'ollie');
   if (trick.butter) comboElements.push('butter');
+  if (trick.hop) comboElements.push(trick.hop.spin ? 'hop 180' : 'hop');
   const combo = Math.min(3, 1 + Math.max(0, comboElements.length - 1) * 0.2);
 
   const popM = pop ? POP_MULT[pop.timing] : POP_MULT.none;
@@ -167,9 +175,10 @@ export function scoreRun(
   const executionLabel = `${popM[1]} · ${landing.grade === 'stomped' ? 'Stomped' : landing.grade === 'clean' ? 'Clean' : landing.grade === 'sketchy' ? 'Sketchy' : 'Bail'}`;
 
   const sick = sickMultiplier(sickLevel);
-  const base = amplitude + difficulty + style + creativity + progression;
+  const base = amplitude + difficulty + style + creativity + progression + setup;
   const total = Math.round(base * execution * combo * sick * (bonus?.mult && !bonus.grab ? bonus.mult : 1));
 
+  if (trick.hop) lines.push({ label: 'Setup', value: setup, detail: `${trick.hop.timing === 'perfect' ? 'perfect' : trick.hop.timing === 'good' ? 'good' : trick.hop.timing} hop${trick.hop.spin ? ' 180' : ''} · ${trick.hop.timing === 'perfect' || trick.hop.timing === 'good' ? 'rebound' : 'no rebound'}` });
   lines.push({ label: 'Amplitude', value: amplitude, detail: `${height.toFixed(1)}m · ${trick.airTime.toFixed(2)}s air` });
   lines.push({ label: 'Difficulty', value: difficulty, detail: difficultyDetail(trick) });
   lines.push({ label: 'Style', value: style, detail: trick.grabs.length ? `${trick.grabs.length} grab${trick.grabs.length > 1 ? 's' : ''}${trick.maxTweak > 0.65 ? ', tweaked' : ''}` : 'no grab' });
@@ -185,6 +194,7 @@ export function scoreRun(
     if (!seenThisSession && notStraight) sickDelta += 12;
     if (progression) sickDelta += 8;
     if (comboElements.length >= 3) sickDelta += 6;
+    if (trick.hop?.timing === 'perfect' && pop?.timing === 'perfect') sickDelta += 6;
     if (lastSig === trick.signature) sickDelta -= 24;
     else if (seenThisSession) sickDelta -= 10;
     if (!notStraight) sickDelta -= 6;
@@ -193,7 +203,7 @@ export function scoreRun(
 
   return {
     trick, landing, pop, height,
-    categories: { amplitude, difficulty, style, creativity, progression },
+    categories: { amplitude, difficulty, style, creativity, progression, setup },
     lines, execution, executionLabel, combo, comboElements, sick, base, total, sickDelta, newTricks,
   };
 }

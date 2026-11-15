@@ -4,11 +4,12 @@ An arcade snowboarding game about one thing: hitting the knuckle of a massive Bi
 
 ## Play
 
-- **Touch:** drag the left side to steer (up = tuck, down = check speed; on the deck up/down = nose/tail press). Hold **POP** on the right to load, release on the blue knuckle line. In the air the stick spins (left/right) and flips (up/down), and the POP button becomes a **grab wheel** laid out like your board: nose up, tail down, toe edge left, heel edge right. Drag past the rim to tweak. Let go of everything before touchdown.
-- **Keyboard:** arrows/WASD, hold & release `Space` to pop, `E` switch stance, grabs `J` indy · `U` mute · `O` melon · `P` method · `L` stalefish · `I` nose · `K` tail, `Shift` tweak, `Esc` pause, `Enter`/`R` next run.
+- **The launch is two beats, in slow motion.** The deck plays in "knuckle time": **tap POP on the orange line to hop**, land it and the board rebounds, then **hold POP and release on the blue knuckle line to huck**. A well-timed hop adds pop and scores as Setup; push the stick sideways during the hop for a hop 180 and hit the knuckle switch. Time snaps back to full speed the moment you leave the snow.
+- **Touch:** drag the left side to steer (up = tuck, down = check speed; on the deck up/down = nose/tail press). POP is on the right. In the air the stick spins (left/right) and flips (up/down), and the POP button becomes a **grab wheel** laid out like your board: nose up, tail down, toe edge left, heel edge right. Drag past the rim to tweak. Let go of everything before touchdown.
+- **Keyboard:** arrows/WASD, tap `Space` to hop, hold & release `Space` to huck, `E` switch stance, grabs `J` indy · `U` mute · `O` melon · `P` method · `L` stalefish · `I` nose · `K` tail, `Shift` tweak, `Esc` pause, `Enter`/`R` next run.
 - **Gamepad:** left stick, `A` pop; in the air `X/Y/B/A/LB/RB/LT` grab, `RT` tweak.
 
-Modes: **Big Air Jam** (4 attempts, best two different tricks count, vs. a field of rivals), **Score Attack** (6 levels), **Trick Challenges** (12), **Free Ride**, **Daily Huck** (date-seeded setup: loaner board, wind, snow speed, bonus grab).
+Modes: **Big Air Jam** (4 attempts, best two different tricks count, vs. a field of rivals), **Score Attack** (6 levels), **Trick Challenges** (15), **Free Ride**, **Daily Huck** (date-seeded setup: loaner board, wind, snow speed, bonus grab).
 
 ## Develop
 
@@ -40,4 +41,4 @@ Vite + TypeScript + Three.js. No image or audio assets — textures, venue, ride
 | UI | `src/ui/*` | HUD and screens in plain DOM/CSS. |
 | Save | `src/state/save.ts` | localStorage progress, loadout, unlocks, personal bests. |
 
-Tuning helpers: `scripts/sim.ts` and `scripts/runsim.ts` run the physics headless (`npx esbuild scripts/runsim.ts --bundle --platform=node --format=esm --outfile=/tmp/runsim.mjs && node /tmp/runsim.mjs`).
+Tuning helpers: `scripts/sim.ts` and `scripts/runsim.ts` run the physics headless (`runsim` sweeps approach speed × hop timing × huck timing and fails loudly if any clean input crashes) (`npx esbuild scripts/runsim.ts --bundle --platform=node --format=esm --outfile=/tmp/runsim.mjs && node /tmp/runsim.mjs`).

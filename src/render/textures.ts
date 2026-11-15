@@ -51,12 +51,12 @@ export function corduroyTexture() {
 }
 
 /** Blue dye spray line (alpha). */
-export function dyeTexture() {
+export function dyeTexture(rgb = '30,90,220') {
   const { c, g } = canvas(256, 32);
   const r = rng(11);
   for (let i = 0; i < 1400; i++) {
     const x = r() * 256, y = 16 + (r() - 0.5) * (8 + r() * 20);
-    g.fillStyle = `rgba(30,90,220,${0.15 + r() * 0.5})`;
+    g.fillStyle = `rgba(${rgb},${0.15 + r() * 0.5})`;
     g.beginPath(); g.arc(x, y, 0.6 + r() * 2.2, 0, Math.PI * 2); g.fill();
   }
   return tex(c, true);

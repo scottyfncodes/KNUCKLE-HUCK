@@ -27,6 +27,8 @@ export const PHYS = {
   chargeTime: 0.42,     // s to full load
   suction: 0.06,        // m: small gaps snap back to the snow
   minAirForTrick: 0.35, // s
+  hopImpulse: 2.0,      // m/s: the setup hop on the deck
+  reboundPop: 0.13,     // extra pop from a perfectly timed hop
 };
 
 export interface Vec3 { x: number; y: number; z: number }
@@ -42,6 +44,15 @@ export interface PopResult {
   press: 'none' | 'nose' | 'tail';
 }
 
+export type HopTiming = 'perfect' | 'good' | 'early' | 'late' | 'none';
+export interface HopResult {
+  timing: HopTiming;
+  /** signed metres from the hop line (negative = early) */
+  offset: number;
+  /** 0..1: how much rebound the landing stores for the huck */
+  rebound: number;
+}
+
 export interface BoardStats {
   pop: number;        // 0.8 .. 1.25 multiplier
   flex: number;       // 0..1 (soft..stiff) — soft is easier to load, stiff holds speed
@@ -54,6 +65,7 @@ export interface GroundInput {
   steer: number;    // -1..1
   press: number;    // -1 (tail) .. 1 (nose)
   load: boolean;    // pop button held
+  hop?: boolean;    // pop pressed this step, and a hop is allowed
 }
 
 export interface Conditions {
@@ -89,6 +101,9 @@ export class RiderPhysics {
   apexReached = false;
   apexTime = 0;
   lastPop: PopResult | null = null;
+  lastHop: HopResult | null = null;
+  /** Energy stored by landing the setup hop (0..1). Spent by the next pop. */
+  rebound = 0;
   cond: Conditions = { wind: 0, snowSpeed: 1 };
   stats: BoardStats = { pop: 1, flex: 0.5, stability: 0.5, spin: 1, forgiveness: 0.5 };
   /** Set the moment we go airborne */
@@ -111,6 +126,8 @@ export class RiderPhysics {
     this.apexReached = false;
     this.apexTime = 0;
     this.lastPop = null;
+    this.lastHop = null;
+    this.rebound = 0;
   }
 
   /** Signed slope along current heading. */
@@ -152,10 +169,11 @@ export class RiderPhysics {
     const vz = Math.cos(this.heading) * hs;
 
     // Loading
-    if (inp.load) {
-      if (!this.loading) { this.loading = true; this.loadTime = 0; }
-      this.loadTime += dt;
+    if (inp.load && !inp.hop) {
       const ct = P.chargeTime * (0.8 + 0.4 * this.stats.flex);
+      // Landing a hop already compresses the board: the load starts part-way.
+      if (!this.loading) { this.loading = true; this.loadTime = ct * 0.5 * this.rebound; }
+      this.loadTime += dt;
       this.charge = Math.min(1, this.loadTime / ct);
       // Overloading too long makes you stiff — slight decay after 1.4s
       if (this.loadTime > 1.4) this.charge = Math.max(0.7, 1 - (this.loadTime - 1.4) * 0.25);
@@ -182,10 +200,34 @@ export class RiderPhysics {
     this.pos.x = nx; this.pos.z = nz; this.pos.y = gy;
     this.vel.y = vyGround;
 
+    if (inp.hop) { this.hop(); return; }
     if (this.loading && !inp.load) {
       this.loading = false;
       this.pop();
     }
+  }
+
+  /** How well a hop at the current spot sets up the knuckle. */
+  evaluateHopTiming(): HopResult {
+    const z = this.pos.z;
+    const off = z - COURSE.hopZ;
+    const ad = Math.abs(off);
+    if (z < COURSE.slowStartZ) return { timing: 'none', offset: off, rebound: 0 };
+    const timing: HopTiming = ad <= 1.5 ? 'perfect' : ad <= 3.2 ? 'good' : off < 0 ? 'early' : 'late';
+    const rebound = timing === 'perfect' ? 1 : timing === 'good' ? 0.6 : 0.25;
+    return { timing, offset: off, rebound };
+  }
+
+  /** The setup hop: a quick, low ollie on the deck. Its landing loads the board for the huck. */
+  hop() {
+    const res = this.evaluateHopTiming();
+    const n = groundNormal(this.pos.x, this.pos.z, tmpN);
+    const v = PHYS.hopImpulse * (0.92 + 0.08 * this.stats.pop);
+    this.vel.x += n.x * v; this.vel.y += n.y * v; this.vel.z += n.z * v;
+    this.pos.y += 0.02;
+    this.lastHop = res;
+    this.charge = 0;
+    this.takeoff(true);
   }
 
   /** Evaluate pop timing relative to the knuckle crest. */
@@ -209,7 +251,8 @@ export class RiderPhysics {
     const n = groundNormal(this.pos.x, this.pos.z, tmpN);
     const timingMult = res.timing === 'perfect' ? 1.12 : res.timing === 'good' ? 1.0 : res.timing === 'none' ? 0.7 : 0.88;
     const pressMult = res.press === 'tail' ? 1.06 : res.press === 'nose' ? 0.98 : 1;
-    const v = PHYS.popBase * this.stats.pop * (0.3 + 0.7 * this.charge) * timingMult * pressMult;
+    const v = PHYS.popBase * this.stats.pop * (0.3 + 0.7 * this.charge) * timingMult * pressMult * (1 + PHYS.reboundPop * this.rebound);
+    this.rebound = 0;
     this.vel.x += n.x * v;
     this.vel.y += n.y * v;
     this.vel.z += n.z * v;
@@ -233,6 +276,7 @@ export class RiderPhysics {
     this.apexReached = false;
     this.apexTime = 0;
     this.loading = false;
+    this.loadTime = 0;
     if (!popped) this.lastPop = null;
     this.onTakeoff?.(popped);
   }

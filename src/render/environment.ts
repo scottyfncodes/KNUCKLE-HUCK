@@ -126,7 +126,8 @@ export function buildVenue(scene: THREE.Scene): Venue {
   // ---------- dye lines (blue lines painted on the snow) ----------
   const dyeTex = dyeTexture();
   const dyeMat = new THREE.MeshBasicMaterial({ map: dyeTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, color: '#ffffff' });
-  const crossLine = (z: number, width: number, w = 0.45) => {
+  const hopMat = dyeMat.clone(); hopMat.map = dyeTexture('255,96,24');
+  const crossLine = (z: number, width: number, w = 0.45, mat: THREE.Material = dyeMat) => {
     const pos: number[] = [], uv: number[] = [], idx: number[] = [];
     const n = 24;
     for (let i = 0; i <= n; i++) {
@@ -137,7 +138,7 @@ export function buildVenue(scene: THREE.Scene): Venue {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-    const m = new THREE.Mesh(g, dyeMat); m.renderOrder = 1; group.add(m);
+    const m = new THREE.Mesh(g, mat); m.renderOrder = 1; group.add(m);
   };
   const sideLine = (x0: (z: number) => number, z0: number, z1: number, w = 0.35) => {
     const pos: number[] = [], uv: number[] = [], idx: number[] = [];
@@ -154,7 +155,7 @@ export function buildVenue(scene: THREE.Scene): Venue {
   };
   crossLine(COURSE.knuckleZ, halfWidth(COURSE.knuckleZ) - 0.2, 0.7);       // THE knuckle line
   crossLine(COURSE.knuckleZ - 0.9, halfWidth(COURSE.knuckleZ) - 0.2, 0.25);
-  crossLine(COURSE.deckStartZ, halfWidth(COURSE.deckStartZ) - 0.4, 0.3);
+  crossLine(COURSE.hopZ, halfWidth(COURSE.hopZ) - 0.3, 0.6, hopMat);                    // the hop line
   for (const z of [112, 124, 136]) crossLine(z, halfWidth(z) - 0.5, 0.22);
   for (const s of [-1, 1]) {
     sideLine(z => s * (halfWidth(z) - 0.5), 8, COURSE.outrunZ + 6);
@@ -319,7 +320,7 @@ export function buildVenue(scene: THREE.Scene): Venue {
   };
   for (const s of [-1, 1]) {
     flag(s * (halfWidth(COURSE.knuckleZ) + 0.6), COURSE.knuckleZ, '#2b6cff', 4.6);
-    flag(s * (halfWidth(COURSE.deckStartZ) + 0.6), COURSE.deckStartZ, '#ff5a1f', 3.6);
+    flag(s * (halfWidth(COURSE.hopZ) + 0.6), COURSE.hopZ, '#ff5a1f', 3.6);
     flag(s * (halfWidth(COURSE.landingEndZ) + 1.2), COURSE.landingEndZ, '#d8f34a', 3.6);
   }
 

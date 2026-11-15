@@ -116,6 +116,18 @@ export class AudioEngine {
     o.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + dur + 0.05);
   }
 
+  /** Knuckle time in/out: a pitch dive as the world slows, a rising snap when it lets go. */
+  slowMo(on: boolean) {
+    if (!this.ctx) return;
+    this.musicDuck(on);
+    if (on) { this.tone(220, 0.5, 0.16, 'sine', 62); this.burst(0.5, 1400, 0.7, 0.12, 'lowpass', 160); }
+    else { this.tone(90, 0.22, 0.14, 'sine', 420); this.burst(0.25, 400, 0.7, 0.14, 'bandpass', 3200); }
+  }
+  hop(quality: number) {
+    this.tone(180, 0.09, 0.3, 'sine', 90);
+    this.burst(0.07, 2200, 1.4, 0.28 + quality * 0.2);
+    if (quality > 0.8) this.tone(660, 0.18, 0.07, 'triangle', 880);
+  }
   load() { this.burst(0.25, 400, 1, 0.25, 'lowpass', 180); }
   pop(quality: number) {
     this.tone(120, 0.12, 0.5, 'sine', 50);

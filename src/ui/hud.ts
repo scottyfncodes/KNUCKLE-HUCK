@@ -15,6 +15,7 @@ export class Hud {
   private mode!: HTMLElement; private modeSub!: HTMLElement;
   private msg!: HTMLElement; private caption!: HTMLElement; private hint!: HTMLElement; private ready!: HTMLElement;
   private flash!: HTMLElement; private vignette!: HTMLElement; private toasts!: HTMLElement; private legend!: HTMLElement;
+  private lines!: HTMLElement;
   private captionTimer = 0; private hintText = '';
   onPause: (() => void) | null = null;
   /** ideal speed band km/h */
@@ -23,9 +24,11 @@ export class Hud {
   constructor(el: HTMLElement) {
     this.el = el;
     el.innerHTML = `
+      <div class="slowmo"><i></i><i></i></div>
+      <div class="speedlines"></div>
       <div class="hud-tl"><button class="icon-btn" data-pause aria-label="Pause"><span>II</span></button><div class="hud-mode"><div class="m"></div><div class="s"></div></div></div>
       <div class="hud-tr"><div class="sick"><div class="lbl">SICK METER · <b></b></div><div class="bar">${'<i></i>'.repeat(SEGS)}</div></div></div>
-      <div class="timing"><div class="track"><div class="zone g"></div><div class="zone p"></div><div class="mark"></div><div class="charge"></div></div><div class="lbls"><span>Early</span><span>Knuckle</span><span>Late</span></div></div>
+      <div class="timing"><div class="track"><div class="zone hg"></div><div class="zone hp"></div><div class="zone g"></div><div class="zone p"></div><div class="mark"></div><div class="charge"></div></div><div class="lbls"><span class="l-hop">Hop</span><span class="l-huck">Huck</span></div></div>
       <div class="speedo"><span class="v">0</span><span class="u">KM/H</span><div class="band"><div class="ok"></div><div class="cur"></div></div><div class="hint"></div></div>
       <div class="trick-live"><div class="name"></div><div class="chips"></div></div>
       <div class="land-ind"><span></span></div>
@@ -45,14 +48,18 @@ export class Hud {
     this.sick = this.q('.sick'); this.sickLbl = this.q('.sick .lbl b'); this.sickBars = Array.from(this.el.querySelectorAll('.sick .bar i'));
     this.mode = this.q('.hud-mode .m'); this.modeSub = this.q('.hud-mode .s');
     this.msg = this.q('.pop-msg'); this.caption = this.q('.caption'); this.hint = this.q('.hint-banner'); this.ready = this.q('.ready-banner');
+    this.lines = this.q('.speedlines');
     this.flash = this.q('.flash'); this.vignette = this.q('.vignette'); this.toasts = this.q('.toast-stack'); this.legend = this.q('.key-legend');
     this.q('[data-pause]').addEventListener('click', () => this.onPause?.());
-    // timing zones: track spans knuckleZ-12 .. knuckleZ+10
-    const span = (z: number) => ((z - (COURSE.knuckleZ - 12)) / 22) * 100;
+    // timing zones: the track runs from before the hop line to past the knuckle
+    const span = Hud.span;
+    const zone = (sel: string, c: number, r: number) => { const e = this.q<HTMLElement>(sel); e.style.left = `${span(c - r)}%`; e.style.width = `${span(c + r) - span(c - r)}%`; };
+    zone('.zone.hg', COURSE.hopZ, 3.2); zone('.zone.hp', COURSE.hopZ, 1.5);
+    this.q<HTMLElement>('.l-hop').style.left = `${span(COURSE.hopZ)}%`; this.q<HTMLElement>('.l-huck').style.left = `${span(COURSE.knuckleZ)}%`;
     const g = this.q<HTMLElement>('.zone.g'); g.style.left = `${span(COURSE.knuckleZ - 3.6)}%`; g.style.width = `${span(COURSE.knuckleZ + 3.6) - span(COURSE.knuckleZ - 3.6)}%`;
     const p = this.q<HTMLElement>('.zone.p'); p.style.left = `${span(COURSE.knuckleZ - 1.6)}%`; p.style.width = `${span(COURSE.knuckleZ + 1.6) - span(COURSE.knuckleZ - 1.6)}%`;
     this.setBand(this.band[0], this.band[1]);
-    this.legend.innerHTML = `<kbd>←→</kbd> steer / spin · <kbd>↑↓</kbd> tuck·press / flip<br><kbd>SPACE</kbd> hold &amp; release to pop · <kbd>E</kbd> switch<br>Grabs <kbd>J</kbd>indy <kbd>U</kbd>mute <kbd>O</kbd>melon <kbd>P</kbd>method <kbd>L</kbd>stale <kbd>I</kbd>nose <kbd>K</kbd>tail · <kbd>SHIFT</kbd> tweak`;
+    this.legend.innerHTML = `<kbd>←→</kbd> steer / spin · <kbd>↑↓</kbd> tuck·press / flip<br><kbd>SPACE</kbd> tap to hop · hold &amp; release to huck · <kbd>E</kbd> switch<br>Grabs <kbd>J</kbd>indy <kbd>U</kbd>mute <kbd>O</kbd>melon <kbd>P</kbd>method <kbd>L</kbd>stale <kbd>I</kbd>nose <kbd>K</kbd>tail · <kbd>SHIFT</kbd> tweak`;
   }
 
   show(on: boolean) { this.el.style.display = on ? '' : 'none'; }
@@ -76,20 +83,32 @@ export class Hud {
     const [lo, hi] = this.band;
     let h = '';
     if (z < COURSE.deckStartZ - 6) h = kmh < lo ? '↑ tuck for speed' : kmh > hi ? '↓ check speed' : 'speed is good';
-    else if (z < COURSE.knuckleZ + 4) h = 'hold pop · release on blue line';
+    else if (z < COURSE.knuckleZ + 4) h = 'hop on orange · huck on blue';
     this.speedHint.textContent = h;
     (this.el.querySelector('.speedo') as HTMLElement).style.opacity = visible ? '1' : '0';
   }
 
-  timingMeter(z: number, charge: number, visible: boolean) {
+  private static readonly Z0 = COURSE.hopZ - 9;
+  private static readonly Z1 = COURSE.knuckleZ + 6;
+  static span(z: number) { return ((z - Hud.Z0) / (Hud.Z1 - Hud.Z0)) * 100; }
+
+  /** beat: which of the two moves is next ('hop' | 'huck'), so the other zone dims. */
+  timingMeter(z: number, charge: number, visible: boolean, beat: 'hop' | 'huck' = 'huck') {
     this.timing.classList.toggle('on', visible);
     if (!visible) return;
-    const pct = Math.max(0, Math.min(100, ((z - (COURSE.knuckleZ - 12)) / 22) * 100));
+    this.timing.dataset.beat = beat;
+    const pct = Math.max(0, Math.min(100, Hud.span(z)));
     this.mark.style.left = `calc(${pct}% - 2px)`;
-    const d = Math.abs(z - COURSE.knuckleZ);
-    this.mark.style.background = d <= 1.6 ? 'var(--acid)' : d <= 3.6 ? 'var(--sky)' : '#fff';
+    const d = Math.abs(z - (beat === 'hop' ? COURSE.hopZ : COURSE.knuckleZ));
+    const [p, g] = beat === 'hop' ? [1.5, 3.2] : [1.6, 3.6];
+    this.mark.style.background = d <= p ? 'var(--acid)' : d <= g ? (beat === 'hop' ? 'var(--orange)' : 'var(--sky)') : '#fff';
     this.chargeBar.style.width = `${charge * 100}%`;
   }
+
+  /** Knuckle time: cinematic bars + cool vignette while the deck runs in slow motion. */
+  slowMo(on: boolean) { this.el.classList.toggle('slow', on); }
+  /** 0..1 streaks at the screen edge for a sense of speed. */
+  speedLines(k: number) { this.lines.style.opacity = k < 0.02 ? '0' : k.toFixed(2); }
 
   trickLive(name: string, chips: string[], mult: number, visible: boolean) {
     this.trick.style.opacity = visible && name ? '1' : '0';
@@ -154,10 +173,10 @@ export class Hud {
     const d = document.createElement('div');
     d.className = 'toast'; d.innerHTML = `<b>${t[0]}</b>${t[1]}`;
     this.toasts.appendChild(d);
-    setTimeout(() => d.remove(), 3700);
-    setTimeout(() => this.nextToast(), 1300);
+    setTimeout(() => d.remove(), 2300);
+    setTimeout(() => this.nextToast(), 2150);
   }
   clearTransient() {
-    this.msg.innerHTML = ''; this.trick.style.opacity = '0'; this.land.classList.remove('on'); this.timing.classList.remove('on'); this.setHint(''); this.readyBanner('', '', '');
+    this.msg.innerHTML = ''; this.trick.style.opacity = '0'; this.land.classList.remove('on'); this.timing.classList.remove('on'); this.slowMo(false); this.speedLines(0); this.setHint(''); this.readyBanner('', '', '');
   }
 }

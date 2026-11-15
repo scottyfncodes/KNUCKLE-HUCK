@@ -42,11 +42,13 @@ interface Session {
 }
 
 const SIM_DT = 1 / 120;
+/** Time scale on the deck ("knuckle time") and on the in-run. */
+const DECK_TIME = 0.4, INRUN_TIME = 1.22;
 const DEMO_SCRIPTS: ((t: number, z: number, air: number, phase: string) => Partial<InputState>)[] = [
   // Frontside 720 Melon
-  (_t, z, air, ph) => ph === 'air' ? { x: air < 0.95 ? -1 : 0, grab: air > 0.35 && air < 1.9 ? 'melon' : null, tweak: air > 0.9 && air < 1.6 ? 1 : 0 } : { y: z < 60 ? 0.5 : 0, pop: z > 80 && z < 86.6 },
+  (_t, z, air, ph) => ph === 'air' ? { x: air < 0.95 ? -1 : 0, grab: air > 0.35 && air < 1.9 ? 'melon' : null, tweak: air > 0.9 && air < 1.6 ? 1 : 0 } : { y: z < 60 ? 0.5 : 0, pop: (z > 70.6 && z < 71.6) || (z > 80 && z < 86.6) },
   // Backside Cork 540 Indy
-  (_t, z, air, ph) => ph === 'air' ? { x: air < 0.75 ? 1 : 0, y: air < 0.55 ? -1 : 0, grab: air > 0.3 && air < 1.7 ? 'indy' : null } : { y: z < 60 ? 0.3 : 0, pop: z > 80 && z < 86.4 },
+  (_t, z, air, ph) => ph === 'air' ? { x: air < 0.75 ? 1 : 0, y: air < 0.55 ? -1 : 0, grab: air > 0.3 && air < 1.7 ? 'indy' : null } : { x: ph === 'hop' ? -1 : 0, y: z < 60 ? 0.3 : 0, pop: (z > 70.4 && z < 71.4) || (z > 80 && z < 86.4) },
   // Late Backside 360 Method
   (_t, z, air, ph) => ph === 'air' ? { x: air > 1.4 && air < 2.1 ? 1 : 0, grab: air > 0.2 && air < 1.5 ? 'method' : null, tweak: air > 0.5 && air < 1.4 ? 1 : 0 } : { y: z < 60 ? 0.4 : 0, pop: z > 80 && z < 86.8 },
 ];
@@ -70,6 +72,8 @@ export class Game {
   private acc = 0;
   private timeScale = 1;
   private slowTimer = 0;
+  private deckSlow = false;
+  private huckKick = 0;
   private last = performance.now();
   private t = 0;
   private demo: { frames: Frame[]; t: number; idx: number; cam: number } = { frames: [], t: 0, idx: 0, cam: 0 };
@@ -254,7 +258,7 @@ export class Game {
     sim.drop();
     const inp = blankInput();
     for (let i = 0; i < 120 * 22 && sim.phase !== 'done'; i++) {
-      const p = script(sim.t, sim.phys.pos.z, sim.tricks.airTime, sim.phase);
+      const p = script(sim.t, sim.phys.pos.z, sim.tricks.airTime, sim.hopAir ? 'hop' : sim.phase);
       inp.x = p.x ?? 0; inp.y = p.y ?? 0; inp.pop = !!p.pop; inp.grab = (p.grab as GrabId) ?? null; inp.tweak = p.tweak ?? 0;
       sim.step(SIM_DT, inp);
     }
@@ -346,10 +350,10 @@ export class Game {
     this.rider.applyLoadout(loadoutRide);
     this.particles.clear();
     this.rig.setMode('follow', true);
-    this.timeScale = 1; this.slowTimer = 0;
+    this.timeScale = 1; this.slowTimer = 0; this.deckSlow = false; this.huckKick = 0; this.hud.slowMo(false);
     this.hud.setMode(this.modeName(), this.modeSub());
     const total = Number.isFinite(s.attempts) ? `ATTEMPT ${s.attempt} / ${s.attempts}` : `RUN ${s.attempt}`;
-    let sub = 'Hold POP · release on the blue line';
+    let sub = 'Hop on orange · huck on blue';
     if (s.mode === 'challenge') sub = challengeById(s.challengeId!)!.desc;
     if (s.mode === 'daily') sub = this.dailyInfo().desc;
     if (s.mode === 'attack') { const L = SCORE_ATTACK[s.level! - 1]; sub = `Target ${fmt(L.target)} · ${fmt(sum(s.totals))} so far`; }
@@ -444,30 +448,45 @@ export class Game {
   private updateRun(dt: number, inp: InputState) {
     const run = this.run!;
     if (this.bot !== null) {
-      const p = DEMO_SCRIPTS[this.bot](run.t, run.phys.pos.z, run.tricks.airTime, run.phase);
+      const p = DEMO_SCRIPTS[this.bot](run.t, run.phys.pos.z, run.tricks.airTime, run.hopAir ? 'hop' : run.phase);
       inp = { ...inp, x: p.x ?? 0, y: p.y ?? 0, pop: !!p.pop, grab: (p.grab as GrabId) ?? null, tweak: p.tweak ?? 0 };
     }
     // slow-motion dip
-    if (this.slowTimer > 0) { this.slowTimer -= dt; this.timeScale += (0.45 - this.timeScale) * Math.min(1, dt * 12); }
-    else this.timeScale += (1 - this.timeScale) * Math.min(1, dt * 5);
+    // Knuckle time: the deck (hop, load, huck) plays in slow motion, then snaps back at takeoff.
+    const z0 = run.phys.pos.z;
+    const deckSlow = (run.phase === 'ride' || run.hopAir) && z0 > COURSE.slowStartZ && z0 < COURSE.landingStartZ && run.phys.speed > 6;
+    if (deckSlow !== this.deckSlow) { this.deckSlow = deckSlow; this.hud.slowMo(deckSlow); this.audio.slowMo(deckSlow); }
+    if (this.slowTimer > 0) { this.slowTimer -= dt; this.timeScale += (0.4 - this.timeScale) * Math.min(1, dt * 12); }
+    else if (deckSlow) this.timeScale += (DECK_TIME - this.timeScale) * Math.min(1, dt * 7);
+    else {
+      // the long in-run plays a touch fast so the wait for the knuckle stays short
+      const cruise = run.phase === 'ride' && z0 < COURSE.slowStartZ ? INRUN_TIME : 1;
+      this.timeScale += (cruise - this.timeScale) * Math.min(1, dt * (this.timeScale < cruise ? 9 : 4));
+    }
     this.acc += dt * this.timeScale;
+    // Slow motion shrinks the step instead of skipping steps, so it stays smooth at any frame rate.
+    const stepDt = SIM_DT * Math.min(1, Math.max(0.2, this.timeScale));
     let first = true;
-    while (this.acc >= SIM_DT) {
-      this.acc -= SIM_DT;
+    while (this.acc >= stepDt) {
+      this.acc -= stepDt;
       const stepInp = first ? inp : { ...inp, switchStance: false };
       first = false;
-      run.step(SIM_DT, stepInp);
+      run.step(stepDt, stepInp);
       this.handleEvents();
       if (this.state !== 'run') return;
     }
-    this.input.setMode(run.airborne ? 'air' : run.phase === 'ride' || run.phase === 'ready' ? 'ground' : 'off');
+    this.input.setMode(run.airborne ? 'air' : run.phase === 'ride' || run.phase === 'ready' || run.hopAir ? 'ground' : 'off');
     this.syncRider(run.pos, run.quat, run.pose);
     this.runFx(dt, run);
     // camera
-    const mode: CamMode = run.phase === 'air' ? 'air' : run.phase === 'landed' || run.phase === 'done' ? 'land' : run.phase === 'crash' ? 'crash' : 'follow';
+    const mode: CamMode = run.airborne ? 'air' : this.deckSlow ? 'deck' : run.phase === 'landed' || run.phase === 'done' ? 'land' : run.phase === 'crash' ? 'crash' : 'follow';
     if (this.rig.mode !== mode) this.rig.setMode(mode);
+    this.huckKick *= Math.exp(-dt * 3.2);
+    this.rig.kick = this.huckKick;
     this.rig.update(dt, run.pos, run.vel, { landing: run.landingPoint, airTime: run.tricks.airTime, speed: run.speed });
     this.updateHud(run, inp);
+    const fast = run.phase === 'ride' || run.airborne ? Math.max(0, (run.speed - 9) / 12) : 0;
+    this.hud.speedLines(Math.min(1, fast * (this.deckSlow ? 0.25 : 0.7) + this.huckKick));
     // audio
     const ph = run.phys;
     this.audio.ride(run.speed, ph.grounded && run.phase !== 'crash', Math.abs(ph.turnRate) * 0.5 + (ph.loading ? 0.3 : 0), run.speed);
@@ -525,8 +544,12 @@ export class Game {
             'way-early': ['WAY EARLY', 'bad'], 'way-late': ['WAY LATE', 'bad'], none: ['OLLIE', 'good'],
           };
           const [txt, cls] = label[q];
-          this.hud.stamp(txt, cls, e.pop.press === 'nose' ? 'nollie!' : e.pop.press === 'tail' ? 'tail-loaded ollie' : '');
-          if (q === 'perfect') { this.slowTimer = 0.28; this.audio.announce(pick(LINES.perfectPop)); this.hud.doFlash(); }
+          // near-miss feedback: say how far off the line it was, so the next attempt can correct
+          const miss = q !== 'perfect' && q !== 'none' ? `${Math.abs(e.pop.offset).toFixed(1)} m ${e.pop.offset < 0 ? 'early' : 'late'}` : '';
+          this.hud.stamp(txt, cls, e.pop.press === 'nose' ? 'nollie!' : e.pop.press === 'tail' ? 'tail-loaded ollie' : miss);
+          const onKnuckle = q !== 'none';
+          if (onKnuckle) { this.huckKick = 0.35 + e.pop.quality * 0.45; this.rig.shake(0.12 + e.pop.quality * 0.14); }
+          if (q === 'perfect') { this.slowTimer = 0.22; this.audio.announce(pick(LINES.perfectPop)); this.hud.doFlash(); }
           else if (q === 'early' || q === 'way-early') this.audio.announce(pick(LINES.early));
           else if (q === 'late' || q === 'way-late') this.audio.announce(pick(LINES.late));
           this.particles.emit(p, new THREE.Vector3(run.phys.vel.x * 0.2, 0.5, run.phys.vel.z * 0.2), 3.5, 28, { life: 0.8, size: 0.38 });
@@ -539,7 +562,29 @@ export class Game {
           this.audio.musicIntensity(0.75 + this.sick / 300);
           break;
         case 'grab': this.audio.grab(); this.haptic(8); break;
-        case 'hop': this.particles.emit(p, new THREE.Vector3(0, 1, 0), 2, 16, { life: 0.5 }); this.audio.land(2, true); break;
+        case 'hopoff': {
+          const h = e.hop;
+          this.audio.hop(h.rebound);
+          this.particles.emit(p, new THREE.Vector3(run.phys.vel.x * 0.15, 0.6, run.phys.vel.z * 0.15), 2.4, 14, { life: 0.6, size: 0.3 });
+          if (h.timing !== 'none') {
+            const lbl: Record<string, [string, string]> = { perfect: ['PERFECT HOP', 'perfect'], good: ['GOOD HOP', 'good'], early: ['EARLY HOP', 'bad'], late: ['LATE HOP', 'bad'] };
+            this.hud.stamp(lbl[h.timing][0], lbl[h.timing][1], h.timing === 'perfect' ? '' : `${Math.abs(h.offset).toFixed(1)} m ${h.offset < 0 ? 'early' : 'late'}`);
+          }
+          this.haptic(10);
+          break;
+        }
+        case 'hop': {
+          this.particles.emit(p, new THREE.Vector3(run.phys.vel.x * 0.2, 1, run.phys.vel.z * 0.2), 2.6, 22, { life: 0.6, size: 0.34 });
+          this.audio.land(2.5, e.clean);
+          if (e.hop) {
+            this.rig.shake(0.08);
+            if (!e.clean) this.hud.stamp('SKETCHY HOP', 'bad', 'lost the rebound');
+            else if (e.spin) this.hud.stamp('HOP 180', 'perfect', run.switchStance ? 'riding switch' : 'back to regular');
+            else if (e.hop.rebound >= 0.6) this.hud.stamp('REBOUND', e.hop.rebound >= 1 ? 'perfect' : 'good', 'board is loaded');
+            this.haptic(14);
+          }
+          break;
+        }
         case 'land': {
           const L = e.landing;
           this.audio.land(L.impact, L.grade !== 'sketchy');
@@ -559,6 +604,7 @@ export class Game {
             this.hud.doFlash();
             for (const s of [-1, 1]) this.particles.emit(new THREE.Vector3(s * 26, profileY(190) + 1, 190), new THREE.Vector3(0, 14, 0), 4, 80, { life: 2.2, size: 0.6, color: s > 0 ? [1, 0.35, 0.12] : [0.85, 0.95, 0.3], grav: 5, drag: 0.6 });
           }
+          if (L.grade === 'stomped') this.slowTimer = 0.14; // a beat of hit-stop sells the stomp
           this.haptic(L.grade === 'sketchy' ? 40 : 25);
           break;
         }
@@ -593,11 +639,14 @@ export class Game {
     const z = ph.pos.z;
     this.hud.speed(run.speed, z, run.phase === 'ride' || run.phase === 'ready');
     this.input.setSwitchAllowed(z < COURSE.deckStartZ - 3);
-    const showTiming = ph.grounded && run.phase === 'ride' && z > COURSE.knuckleZ - 16 && z < COURSE.knuckleZ + 8;
-    this.hud.timingMeter(z, ph.loading ? ph.charge : 0, showTiming);
-    if (showTiming) {
-      const d = z - COURSE.knuckleZ;
-      this.input.setPopFeedback(ph.loading ? ph.charge : 0, Math.abs(d) <= 1.6 ? 'perfect' : Math.abs(d) <= 3.6 ? 'good' : d > 3.6 ? 'late' : 'early');
+    const onDeck = (run.phase === 'ride' || run.hopAir) && z > COURSE.hopZ - 9 && z < COURSE.knuckleZ + 6;
+    const beat: 'hop' | 'huck' = run.canHop ? 'hop' : 'huck';
+    this.hud.timingMeter(z, ph.loading ? ph.charge : 0, onDeck, beat);
+    this.input.setPopLabel(beat === 'hop' && z > COURSE.slowStartZ - 12 ? 'HOP' : 'HUCK', beat === 'hop' && z > COURSE.slowStartZ - 12 ? 'tap on orange' : 'hold · release');
+    if (onDeck) {
+      const d = z - (beat === 'hop' ? COURSE.hopZ : COURSE.knuckleZ), ad = Math.abs(d);
+      const [pw, gw] = beat === 'hop' ? [1.5, 3.2] : [1.6, 3.6];
+      this.input.setPopFeedback(ph.loading ? ph.charge : 0, ad <= pw ? 'perfect' : ad <= gw ? 'good' : d > gw ? 'late' : 'early');
     } else this.input.setPopFeedback(ph.loading ? ph.charge : 0, 'none');
     if (run.airborne) {
       const sum = run.tricks.summary();
@@ -605,10 +654,11 @@ export class Game {
       if (sum.switchTakeoff) chips.push('switch');
       if (sum.pressPop === 'nose') chips.push('nollie');
       if (sum.butter) chips.push('butter');
+      if (sum.hop) chips.push(sum.hop.spin ? 'hop 180' : 'hop');
       if (sum.late) chips.push('late');
       if (sum.offAxis) chips.push('off-axis');
       if (run.tricks.grab && run.tricks.tweak > 0.6) chips.push('tweak!');
-      const elements = (sum.spinDeg >= 180 ? 1 : 0) + (sum.flips ? 1 : 0) + (sum.offAxis ? 1 : 0) + sum.grabs.length + (sum.maxTweak > 0.65 ? 1 : 0) + (sum.switchTakeoff ? 1 : 0) + (sum.late ? 1 : 0) + (sum.pressPop !== 'none' ? 1 : 0) + (sum.butter ? 1 : 0);
+      const elements = (sum.spinDeg >= 180 ? 1 : 0) + (sum.flips ? 1 : 0) + (sum.offAxis ? 1 : 0) + sum.grabs.length + (sum.maxTweak > 0.65 ? 1 : 0) + (sum.switchTakeoff ? 1 : 0) + (sum.late ? 1 : 0) + (sum.pressPop !== 'none' ? 1 : 0) + (sum.butter ? 1 : 0) + (sum.hop ? 1 : 0);
       const live = run.tricks.grab ? `${sum.name}${sum.grabs.length === 0 ? ' ' + GRAB_NAME[run.tricks.grab] : ''}` : sum.name;
       this.hud.trickLive(live === 'Straight Air' && run.tricks.airTime < 0.4 ? '' : live, chips, 1 + Math.max(0, elements - 1) * 0.2, true);
       // landing indicator
@@ -631,7 +681,9 @@ export class Game {
       let h = '';
       const keys = !this.touch;
       if (run.phase === 'ride' && z < 40) h = keys ? '<b>← →</b> steer · <b>↑</b> tuck for speed' : 'Drag the <b>left side</b> to steer · up to tuck';
-      else if (run.phase === 'ride' && z > COURSE.deckStartZ - 14 && !ph.loading && z < COURSE.knuckleZ - 1) h = keys ? '<b>HOLD SPACE</b> to load the pop' : '<b>HOLD POP</b> to load';
+      else if (run.canHop && z > COURSE.slowStartZ - 6) h = keys ? '<b>TAP SPACE</b> on the orange line to hop' : '<b>TAP</b> on the orange line to hop';
+      else if (run.hopAir) h = keys ? 'Now <b>HOLD SPACE</b>…' : 'Now <b>HOLD</b>…';
+      else if (run.phase === 'ride' && z >= COURSE.hopEndZ && !ph.loading && z < COURSE.knuckleZ - 1) h = keys ? '<b>HOLD SPACE</b> to load the huck' : '<b>HOLD</b> to load the huck';
       else if (run.phase === 'ride' && ph.loading && z > COURSE.knuckleZ - 5) h = '<b>RELEASE</b> on the blue line!';
       else if (run.airborne && run.tricks.airTime < 1.2) h = keys ? '<b>Arrows</b> spin/flip · <b>J U O P L I K</b> grab' : '<b>Stick</b> = spin/flip · <b>wheel</b> = grab';
       else if (run.airborne && ph.vel.y < 0 && run.tricks.neutralTime < 0.1) h = '<b>LET GO</b> of everything to land';
@@ -815,7 +867,7 @@ export class Game {
     const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), vel = new THREE.Vector3();
     const f = sampleFrames(run.frames, this.replay.t, pose, pos, quat, vel);
     const phase = PHASE_FROM_CODE[f.phase];
-    const rate = this.replay.slow && phase === 'air' ? 0.35 : 1;
+    const rate = !this.replay.slow ? 1 : phase === 'air' && f.z > COURSE.knuckleZ - 4 ? 0.35 : f.z > COURSE.slowStartZ && f.z < COURSE.landingStartZ ? 0.5 : 1;
     this.replay.t += dt * rate;
     this.syncRider(pos, quat, pose);
     this.rig.update(dt * rate, pos, vel, { landing: run.landingPoint, airTime: 1, speed: f.speed });

@@ -45,9 +45,13 @@ export interface TrickSummary {
   maxTweak: number;
   pressPop: 'none' | 'nose' | 'tail';
   butter: boolean;
+  /** The setup hop on the deck before the knuckle. */
+  hop: HopSetup | null;
   airTime: number;
   signature: string;    // used for repetition detection
 }
+
+export interface HopSetup { timing: 'perfect' | 'good' | 'early' | 'late'; spin: 0 | 180 }
 
 const SPIN_MAX = 600;   // deg/s
 const FLIP_MAX = 470;   // deg/s
@@ -70,6 +74,7 @@ export class TrickController {
   apexTime = -1;
   pressPop: 'none' | 'nose' | 'tail' = 'none';
   butter = false;
+  hop: HopSetup | null = null;
   /** seconds since the player was last rotating or grabbing */
   neutralTime = 0;
   stats: RotationStats = { spin: 1, response: 1 };
@@ -77,8 +82,8 @@ export class TrickController {
   grabBlend = 0;
   shownGrab: GrabId | null = null;
 
-  begin(switchStance: boolean, press: 'none' | 'nose' | 'tail', butter = false) {
-    this.butter = butter;
+  begin(switchStance: boolean, press: 'none' | 'nose' | 'tail', butter = false, hop: HopSetup | null = null) {
+    this.butter = butter; this.hop = hop;
     this.spin = 0; this.spinRate = 0; this.flip = 0; this.flipRate = 0;
     this.grab = null; this.tweak = 0; this.grabs = [];
     this.airTime = 0; this.switchTakeoff = switchStance; this.travelSign = switchStance ? -1 : 1;
@@ -198,7 +203,7 @@ export class TrickController {
     const signature = `${this.switchTakeoff ? 'sw' : ''}${direction}${spinDeg}|${flipDir}${fullFlipish}|${merged.map(g => g.id).join('>')}`;
     return {
       name, spinDeg, spinRaw: this.spin, flips: fullFlipish, flipRaw: this.flip, direction, flipDir, offAxis,
-      switchTakeoff: this.switchTakeoff, late, grabs: merged, maxTweak, pressPop: this.pressPop, butter: this.butter, airTime: this.airTime, signature,
+      switchTakeoff: this.switchTakeoff, late, grabs: merged, maxTweak, pressPop: this.pressPop, butter: this.butter, hop: this.hop, airTime: this.airTime, signature,
     };
   }
 }

@@ -87,6 +87,17 @@ export class Input {
     if (m !== 'air') this.state.grab = null;
   }
 
+  private popLabel = '';
+  /** What the action button does right now: HOP (tap) or HUCK (hold and release). */
+  setPopLabel(label: string, sub: string) {
+    const key = label + '|' + sub;
+    if (key === this.popLabel) return;
+    this.popLabel = key;
+    this.popEl.querySelector('span')!.textContent = label;
+    this.popEl.querySelector('small')!.textContent = sub;
+    this.popEl.dataset.act = label.toLowerCase();
+  }
+
   setSwitchAllowed(on: boolean) { this.root.dataset.noswitch = on ? '0' : '1'; }
 
   /** Pop button charge feedback 0..1 and timing hint colour */
