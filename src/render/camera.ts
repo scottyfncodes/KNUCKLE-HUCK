@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { COURSE, profileY } from '../physics/course';
 import { visualY } from './environment';
 
-export type CamMode = 'menu' | 'garage' | 'follow' | 'air' | 'land' | 'crash' | 'replay-follow' | 'replay-broadcast' | 'replay-landing' | 'replay-drone' | 'results';
+export type CamMode = 'menu' | 'garage' | 'follow' | 'deck' | 'air' | 'land' | 'crash' | 'replay-follow' | 'replay-broadcast' | 'replay-landing' | 'replay-drone' | 'results';
 
 export const REPLAY_ANGLES: { mode: CamMode; label: string }[] = [
   { mode: 'replay-broadcast', label: 'BROADCAST' },
@@ -24,6 +24,8 @@ export class CameraRig {
   private fov = 60;
   private airSide = 1;
   private snap = true;
+  /** 0..1 punch on the huck: FOV kicks wide and eases back. */
+  kick = 0;
 
   constructor() {
     this.cam = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
@@ -83,13 +85,25 @@ export class CameraRig {
         rate = 6; fovTarget = this.fov + Math.min(10, sp * 0.4);
         break;
       }
+      case 'deck': {
+        // Knuckle time: drop low and swing wide so the hop and the two lines read.
+        const sp = opts.speed ?? 14;
+        tp.copy(rider).addScaledVector(dir, -(portrait ? 5.6 : 5.2) - sp * 0.04).addScaledVector(side, portrait ? 1.3 : 2.4).add(new THREE.Vector3(0, portrait ? 2.0 : 1.5, 0));
+        tl.copy(rider).addScaledVector(dir, 6.5).add(new THREE.Vector3(0, 0.1, 0));
+        rate = 4.5; fovTarget = this.fov - (portrait ? 4 : 6);
+        break;
+      }
       case 'air': {
         const at = opts.airTime ?? 0;
         const k = Math.min(1, at / 0.7);
         const land = opts.landing ?? rider;
-        tp.copy(rider).addScaledVector(dir, -7.5 + k * 1.5).addScaledVector(side, this.airSide * 4.5 * k).add(new THREE.Vector3(0, 2.6 + k * 1.2, 0));
-        tl.copy(rider).lerp(land, 0.18 * k).add(new THREE.Vector3(0, 0.3, 0));
-        rate = 3.6; fovTarget = this.fov + 4;
+        // Stay close: the trick is the show, so the rider has to be big on a phone.
+        tp.copy(rider).addScaledVector(dir, -6.6 + k * 1.9).addScaledVector(side, this.airSide * (portrait ? 3.0 : 4.2) * k).add(new THREE.Vector3(0, 2.3 + k * 0.9, 0));
+        // lead the eye toward the landing, but never far enough to push the rider off a narrow screen
+        const lead = land.clone().sub(rider); const ll = lead.length();
+        if (ll > 0.01) lead.multiplyScalar(Math.min(ll * 0.1, portrait ? 0.9 : 1.6) * k / ll);
+        tl.copy(rider).add(lead).add(new THREE.Vector3(0, 0.2, 0));
+        rate = 3.6; fovTarget = this.fov - (portrait ? 16 : 8) * k + (1 - k) * 8;
         break;
       }
       case 'land': {
@@ -157,7 +171,7 @@ export class CameraRig {
     this.anchor.copy(rider);
     const gy2 = visualY(this.pos.x, this.pos.z) + 0.6;
     if (this.pos.y < gy2) this.pos.y = gy2;
-    this.cam.fov += (fovTarget - this.cam.fov) * (1 - Math.exp(-dt * 3));
+    this.cam.fov += (fovTarget + this.kick * 16 - this.cam.fov) * (1 - Math.exp(-dt * (this.kick > 0.3 ? 14 : 3)));
     this.cam.updateProjectionMatrix();
 
     this.cam.position.copy(this.pos);

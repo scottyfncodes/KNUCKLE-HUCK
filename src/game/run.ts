@@ -5,8 +5,8 @@
  */
 import * as THREE from 'three';
 import { COURSE, groundNormal, groundY, halfWidth, slopeAt } from '../physics/course';
-import { PHYS, RiderPhysics, type BoardStats, type Conditions, type LandingContact, type PopResult } from '../physics/rider';
-import { TrickController, type GrabId, type TrickSummary } from '../tricks/tricks';
+import { PHYS, RiderPhysics, type BoardStats, type Conditions, type HopResult, type LandingContact, type PopResult } from '../physics/rider';
+import { TrickController, type GrabId, type HopSetup, type TrickSummary } from '../tricks/tricks';
 import { evaluateLanding, type LandingResult } from '../scoring/scoring';
 import { defaultPose, type RiderPose } from '../render/riderModel';
 import type { InputState } from '../input/input';
@@ -19,7 +19,8 @@ export type RunEvent =
   | { type: 'pop'; pop: PopResult }
   | { type: 'takeoff'; popped: boolean }
   | { type: 'grab'; id: GrabId }
-  | { type: 'hop' }
+  | { type: 'hopoff'; hop: HopResult }
+  | { type: 'hop'; hop: HopResult | null; spin: number; clean: boolean }
   | { type: 'land'; landing: LandingResult; contact: LandingContact }
   | { type: 'crash'; reason: string }
   | { type: 'switch'; toSwitch: boolean }
@@ -79,6 +80,16 @@ export class RunSim {
   private hadMainAir = false;
   private butterTime = 0;
   private stall = 0;
+  private popPrev = false;
+  private dt = 1 / 120;
+  /** True while the rider is in the small setup hop (not the main air). */
+  hopAir = false;
+  /** The deck hop has been used this run. */
+  hopDone = false;
+  private hopT = 0;
+  private hopSpin = 0;      // rad, eased
+  private hopSpinDir = 0;
+  private hopSetup: HopSetup | null = null;
   autoDrop = true;
   /** Predicted landing point (for camera) */
   landingPoint = new THREE.Vector3();
@@ -95,7 +106,10 @@ export class RunSim {
     this.computeTransform();
   }
 
-  get airborne() { return this.phase === 'air'; }
+  /** In the main air (tricks live). The setup hop does not count. */
+  get airborne() { return this.phase === 'air' && !this.hopAir; }
+  /** POP will hop (rather than load the huck) right now. */
+  get canHop() { return this.phase === 'ride' && this.phys.grounded && !this.hopDone && this.phys.pos.z < COURSE.hopEndZ && this.phys.pos.z > 12; }
   get speed() { return this.phase === 'air' ? Math.hypot(this.phys.vel.x, this.phys.vel.y, this.phys.vel.z) : this.phys.speed; }
   get result() { return this.outcome; }
 
@@ -107,7 +121,7 @@ export class RunSim {
   }
 
   step(dt: number, inp: InputState) {
-    this.t += dt; this.phaseT += dt;
+    this.t += dt; this.phaseT += dt; this.dt = dt;
     const P = this.pose;
     P.time = this.t;
     switch (this.phase) {
@@ -151,7 +165,10 @@ export class RunSim {
     if (inp.pop && !ph.loading && !this.loadEmitted) { this.loadEmitted = true; this.events.push({ type: 'load' }); }
     if (!inp.pop) this.loadEmitted = false;
 
-    ph.stepGround(dt, { steer: -inp.x, press, load: inp.pop });
+    const hop = inp.pop && !this.popPrev && this.canHop;
+    this.popPrev = inp.pop;
+    ph.stepGround(dt, { steer: -inp.x, press, load: inp.pop, hop });
+    if (hop && !ph.grounded) { this.beginHop(); return; }
     // Butter: pressing while turning on the deck
     if (!onInrun && Math.abs(ph.press) > 0.45 && Math.abs(ph.turnRate) > 0.45) this.butterTime += dt;
     else this.butterTime = Math.max(0, this.butterTime - dt * 0.5);
@@ -181,13 +198,65 @@ export class RunSim {
     if (ph.pos.z > COURSE.landingStartZ + 6 && !this.hadMainAir) { this.miss('Rolled the knuckle — no air'); return; }
   }
 
-  private beginAir(popped: boolean) {
+  private beginHop() {
     const ph = this.phys;
     this.phase = 'air'; this.phaseT = 0;
+    this.hopAir = true; this.hopT = 0; this.hopSpin = 0; this.hopSpinDir = 0;
+    this.airHeading = ph.heading;
+    if (ph.lastHop && ph.lastHop.timing !== 'none') this.hopDone = true;
+    this.events.push({ type: 'hopoff', hop: ph.lastHop! });
+  }
+
+  /** The setup hop: stick left/right throws a 180. It never slams; a bad one just wastes the rebound. */
+  private stepHop(dt: number, inp: InputState) {
+    const ph = this.phys, P = this.pose;
+    this.hopT += dt;
+    this.popPrev = inp.pop;
+    if (!this.hopSpinDir && Math.abs(inp.x) > 0.5 && this.hopT < 0.16 && ph.lastHop?.timing !== 'none') this.hopSpinDir = -Math.sign(inp.x);
+    if (this.hopSpinDir) {
+      const k = Math.min(1, this.hopT / 0.36);
+      this.hopSpin = this.hopSpinDir * Math.PI * k * k * (3 - 2 * k);
+    }
+    const c = ph.stepAir(dt);
+    // Hopped so late that the deck ran out underneath: this is now the air, with no pop at all.
+    if (!c && ph.pos.z > COURSE.knuckleZ + 0.5) {
+      if (Math.abs(this.hopSpin) > Math.PI * 0.5) this.switchStance = !this.switchStance;
+      this.groundSpin = this.groundSpinTarget = this.switchStance ? Math.PI : 0;
+      this.hopSpin = 0; ph.lastPop = null;
+      this.beginAir(false);
+      return;
+    }
+    const k = Math.min(1, this.hopT / 0.42);
+    P.crouch += ((0.2 + Math.sin(k * Math.PI) * 0.5) - P.crouch) * Math.min(1, dt * 16);
+    P.armsOut += ((this.hopSpinDir ? 0.7 : 0.5) - P.armsOut) * Math.min(1, dt * 8);
+    P.twist += ((this.hopSpinDir * 0.5 * (1 - k)) - P.twist) * Math.min(1, dt * 10);
+    P.press *= Math.exp(-dt * 6); P.lean *= Math.exp(-dt * 4); P.flex *= Math.exp(-dt * 6);
+    P.grab = null; P.grabBlend = 0; P.tweak = 0; P.extend = k > 0.6 ? (k - 0.6) * 2.5 : 0;
+    if (!c) return;
+    // touchdown
+    const hop = ph.lastHop;
+    const spun = Math.abs(this.hopSpin) > Math.PI * 0.5;
+    const clean = !this.hopSpinDir || Math.abs(this.hopSpin) > Math.PI * 0.93;
+    if (spun) this.switchStance = !this.switchStance;
+    this.groundSpin = this.groundSpinTarget = this.switchStance ? Math.PI : 0;
+    this.hopSpin = 0; this.hopAir = false;
+    this.landFlex = -0.45; P.crouch = 0.6;
+    this.phase = 'ride'; this.phaseT = 0;
+    if (hop && hop.timing !== 'none') {
+      ph.rebound = clean ? hop.rebound : 0;
+      if (!clean) ph.speed *= 0.94;
+      this.hopSetup = { timing: hop.timing, spin: spun ? 180 : 0 };
+    }
+    this.events.push({ type: 'hop', hop: hop && hop.timing !== 'none' ? hop : null, spin: spun ? 180 : 0, clean });
+  }
+
+  private beginAir(popped: boolean) {
+    const ph = this.phys;
+    this.phase = 'air'; this.phaseT = 0; this.hopAir = false;
     if (popped && ph.lastPop) this.events.push({ type: 'pop', pop: ph.lastPop });
     this.events.push({ type: 'takeoff', popped });
     const press = ph.lastPop?.press ?? 'none';
-    this.tricks.begin(this.switchStance, press, this.butterTime > 0.35);
+    this.tricks.begin(this.switchStance, press, this.butterTime > 0.35, this.hopSetup);
     if (this.butterTime > 0.35) this.events.push({ type: 'butter' });
     this.butterTime = 0;
     this.airHeading = ph.heading;
@@ -206,6 +275,7 @@ export class RunSim {
   }
 
   private stepAir(dt: number, inp: InputState) {
+    if (this.hopAir) { this.stepHop(dt, inp); return; }
     const ph = this.phys, P = this.pose, tr = this.tricks;
     tr.step(dt, { spin: -inp.x, flip: inp.y, grab: inp.grab, tweak: inp.tweak }, ph.apexReached);
     if (tr.grab && tr.grab !== this.wasGrab) this.events.push({ type: 'grab', id: tr.grab });
@@ -235,8 +305,11 @@ export class RunSim {
   private onTouchdown(c: LandingContact) {
     const ph = this.phys, tr = this.tricks;
     const { yawErr, flipErr } = tr.landingErrors();
-    const landing = evaluateLanding(c.impact, c.zone, yawErr, flipErr, !!tr.grab, tr.neutralTime, this.stats.forgiveness, this.stats.stability);
-    const isHop = !this.hadMainAir && ph.pos.z < COURSE.deckStartZ - 2 && tr.airTime < 1.0;
+    // Legs out and ready soaks up a big landing: going huge and landing prepared should not be punished.
+    const impact = tr.neutralTime >= 0.12 && !tr.grab ? c.impact * 0.86 : c.impact;
+    const landing = evaluateLanding(impact, c.zone, yawErr, flipErr, !!tr.grab, tr.neutralTime, this.stats.forgiveness, this.stats.stability);
+    // A little pop that comes down on the in-run or the deck is not the attempt: keep riding.
+    const isHop = !this.hadMainAir && ph.pos.z < COURSE.knuckleZ - 1 && tr.airTime < 1.2;
     if (landing.grade === 'crash') {
       this.outcome = { trick: tr.summary(), landing, pop: ph.lastPop, height: ph.maxHeightAboveGround, crashed: true, reason: landing.reason, missed: false };
       this.startCrash(landing.reason);
@@ -250,8 +323,8 @@ export class RunSim {
     this.landFlex = -Math.min(1, c.impact / 12);
     this.pose.crouch = Math.min(1, 0.4 + c.impact / 14);
     if (isHop) {
-      this.phase = 'ride'; this.phaseT = 0;
-      this.events.push({ type: 'hop' });
+      this.phase = 'ride'; this.phaseT = 0; ph.lastPop = null;
+      this.events.push({ type: 'hop', hop: null, spin: 0, clean: true });
       return;
     }
     this.hadMainAir = true;
@@ -335,18 +408,18 @@ export class RunSim {
     let spin = this.groundSpin, flip = 0;
     if (this.phase === 'air') {
       heading = this.airHeading;
-      spin += this.tricks.spin * Math.PI / 180;
-      flip = this.tricks.flip * Math.PI / 180;
+      if (this.hopAir) spin += this.hopSpin;
+      else { spin += this.tricks.spin * Math.PI / 180; flip = this.tricks.flip * Math.PI / 180; }
       // pitch: blend toward the slope under the rider so the board meets the landing
-      const s = slopeAt(Math.max(ph.pos.z, this.landingPoint.z - 4));
+      const s = this.hopAir ? slopeAt(ph.pos.z + 2) : slopeAt(Math.max(ph.pos.z, this.landingPoint.z - 4));
       const target = Math.atan(-s);
-      this.pitch += (target - this.pitch) * 0.04;
-      this.roll *= 0.95;
+      this.pitch += (target - this.pitch) * (1 - Math.exp(-this.dt * 4.9));
+      this.roll *= Math.exp(-this.dt * 6.15);
     } else {
       const s = this.slopeAlong(heading);
       const target = Math.atan(-s);
-      this.pitch += (target - this.pitch) * 0.35;
-      this.roll += ((-ph.turnRate * 0.22) - this.roll) * 0.2;
+      this.pitch += (target - this.pitch) * (1 - Math.exp(-this.dt * 52));
+      this.roll += ((-ph.turnRate * 0.22) - this.roll) * (1 - Math.exp(-this.dt * 27));
     }
     const q = this.quat;
     q.setFromAxisAngle(Y, heading);

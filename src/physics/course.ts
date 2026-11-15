@@ -33,6 +33,12 @@ export const COURSE = {
   startZ: 1.5,
   /** Ideal pop point: the top of the knuckle where the deck starts rolling over. */
   knuckleZ: 86.5,
+  /** Ideal spot for the setup hop on the deck (orange line). */
+  hopZ: 71,
+  /** Past this a POP press loads the huck instead of hopping. */
+  hopEndZ: 75,
+  /** Knuckle time (slow motion) starts here. */
+  slowStartZ: 63,
   deckStartZ: 70,
   landingStartZ: 97,
   landingEndZ: 146,

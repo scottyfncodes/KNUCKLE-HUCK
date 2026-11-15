@@ -170,7 +170,7 @@ export class Screens {
   tutorial(done: () => void) {
     const steps = [
       { h: 'Drop in & steer', p: 'Drag anywhere on the <b>left side</b> to steer. Push <b>up to tuck</b> for speed, <b>down to check</b> speed. The green band on the speedo is the knuckle sweet spot.', k: 'Keys: ← → steer · ↑ tuck · ↓ check' },
-      { h: 'Load & pop', p: '<b>Hold POP</b> (right side) to compress. <b>Release right on the blue knuckle line</b>. Early = you case the deck. Late = you roll off with no amplitude. Watch the timing bar.', k: 'Keys: hold SPACE, release to pop' },
+      { h: 'Hop, then huck', p: 'The deck runs in slow motion. <b>Tap POP on the orange line</b> to hop — land it and the board rebounds. Then <b>hold POP and release on the blue knuckle line</b> to huck. Two beats: hop… HUCK.', k: 'Keys: tap SPACE to hop · hold SPACE, release to huck · ← → during the hop = hop 180' },
       { h: 'Spin & flip', p: 'In the air, the <b>left stick spins</b> (left/right) and <b>flips</b> (up = frontflip, down = backflip). Push diagonally for corks, rodeos and mistys. Let go and the rider finishes the rotation.', k: 'Keys: arrows / WASD' },
       { h: 'Grab & tweak', p: 'The POP button becomes a <b>grab wheel</b> — it\'s laid out like your board: nose up, tail down, toe edge left, heel edge right. <b>Drag past the rim to tweak</b>. Chain grabs for combos.', k: 'Keys: J indy · U mute · O melon · P method · L stale · I nose · K tail · SHIFT tweak' },
       { h: 'Land it', p: '<b>Let go of everything before touchdown</b> — the ring turns green when you\'re ready. Land on the steep part of the landing. Stomp it in the sweet spot for bonus points.', k: 'New tricks, switch takeoffs (E / SWITCH) and late spins pump the Sick Meter. Repeats bore the judges.' },
