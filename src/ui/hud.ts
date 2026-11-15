@@ -59,7 +59,7 @@ export class Hud {
     const g = this.q<HTMLElement>('.zone.g'); g.style.left = `${span(COURSE.knuckleZ - 3.6)}%`; g.style.width = `${span(COURSE.knuckleZ + 3.6) - span(COURSE.knuckleZ - 3.6)}%`;
     const p = this.q<HTMLElement>('.zone.p'); p.style.left = `${span(COURSE.knuckleZ - 1.6)}%`; p.style.width = `${span(COURSE.knuckleZ + 1.6) - span(COURSE.knuckleZ - 1.6)}%`;
     this.setBand(this.band[0], this.band[1]);
-    this.legend.innerHTML = `<kbd>←→</kbd> steer / spin · <kbd>↑↓</kbd> tuck·press / flip<br><kbd>SPACE</kbd> hold &amp; release to pop · <kbd>E</kbd> switch<br>Grabs <kbd>J</kbd>indy <kbd>U</kbd>mute <kbd>O</kbd>melon <kbd>P</kbd>method <kbd>L</kbd>stale <kbd>I</kbd>nose <kbd>K</kbd>tail · <kbd>SHIFT</kbd> tweak`;
+    this.legend.innerHTML = `<kbd>←→</kbd> steer / spin · <kbd>↑↓</kbd> tuck·press / flip<br><kbd>SPACE</kbd> tap to hop · hold &amp; release to huck · <kbd>E</kbd> switch<br>Grabs <kbd>J</kbd>indy <kbd>U</kbd>mute <kbd>O</kbd>melon <kbd>P</kbd>method <kbd>L</kbd>stale <kbd>I</kbd>nose <kbd>K</kbd>tail · <kbd>SHIFT</kbd> tweak`;
   }
 
   show(on: boolean) { this.el.style.display = on ? '' : 'none'; }
